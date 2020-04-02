@@ -1,5 +1,5 @@
 use std::env;
-use backtrace::print_function_information;
+use backtrace::get_function_name;
 
 fn main() {
     let args: Vec<_> = env::args().collect();
@@ -11,8 +11,10 @@ fn main() {
 
     // Binary name
     let binary_name = &args[1];
-    // TODO get the function name corresponding to an address
-    let _address = &args[2];
+    // The address wanted for the lookup
+    let address: u64 = args[2].parse::<u64>().expect("Please introduce a number for the address!");
+    // Getting the function name
+    let function_name = get_function_name(binary_name, address).expect("No function was found at that address!");
 
-    print_function_information(binary_name).unwrap();
+    println!("The function name is {}!", function_name);
 }
