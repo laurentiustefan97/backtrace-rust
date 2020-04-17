@@ -47,16 +47,7 @@ pub mod backtrace {
         pub fn unwind_stack(&self) {
             let ip: u64;
 
-            ip = register::read_register(register::GeneralPurposeRegister::PC);
-
-            // Getting the function name
-            let function_name = self.get_function_name(ip - self.code_address)
-                                .expect("No function was found at that address!");
-
-            println!("The current function name is {}!", function_name);
-        }
-
-        pub fn get_function_name(&self, address: u64) -> Result<String, gimli::Error> {
+            // Get dwarf parser
             let file = fs::File::open(&self.binary_name).unwrap();
             let mmap = unsafe { Mmap::map(&file).unwrap() };
             let object = object::File::parse(&*mmap).unwrap();
@@ -75,7 +66,7 @@ pub mod backtrace {
             let load_section_sup = |_| Ok(borrow::Cow::Borrowed(&[][..]));
 
             // Load all the sections.
-            let dwarf_cow = gimli::Dwarf::load(&load_section, &load_section_sup)?;
+            let dwarf_cow = gimli::Dwarf::load(&load_section, &load_section_sup).unwrap();
 
             // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
             let borrow_section: &dyn for<'a> Fn(
@@ -83,8 +74,21 @@ pub mod backtrace {
             ) -> gimli::EndianSlice<'a, gimli::RunTimeEndian> =
                 &|section| gimli::EndianSlice::new(&*section, endian);
 
+            // The dwarf parser
             let dwarf = dwarf_cow.borrow(&borrow_section);
 
+            ip = register::read_register(register::GeneralPurposeRegister::PC);
+
+            // Getting the function name
+            let function_name = self.get_function_name(&dwarf, ip - self.code_address)
+                                .expect("No function was found at that address!");
+
+            println!("The current function name is {}!", function_name);
+        }
+
+        pub fn get_function_name(&self,
+                                 dwarf: &gimli::Dwarf<gimli::EndianSlice<'_, gimli::RunTimeEndian>>,
+                                 address: u64) -> Result<String, gimli::Error> {
             // Iterate over all compilation units.
             let mut iter = dwarf.units();
 
