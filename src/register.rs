@@ -16,6 +16,21 @@ pub fn read_register(register: GeneralPurposeRegister) -> u64 {
     }
 }
 
+#[inline(always)]
+#[cfg(any(target_arch = "x86_64"))]
+pub fn access_memory(address: u64) -> u64 {
+    let mut ret: u64;
+
+    unsafe {
+        asm!("mov rax, $0\nmov rbx, [rax]"
+            : "={rbx}"(ret)
+            : "r" (address)
+            : : "intel")
+    }
+
+    ret
+}
+
 // x86-64
 #[inline(always)]
 #[cfg(any(target_arch = "x86_64"))]

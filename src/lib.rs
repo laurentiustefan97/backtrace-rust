@@ -20,7 +20,9 @@ pub mod backtrace {
     use super::address;
 
     use object::Object;
+    use object::read::ObjectSection;
     use memmap::Mmap;
+    use gimli::UnwindSection;
     use std::{fs, borrow};
     use std::result::Result;
     use std::env;
@@ -44,9 +46,8 @@ pub mod backtrace {
             }
         }
 
+        // The entry point of the backtrace process
         pub fn unwind_stack(&self) {
-            let ip: u64;
-
             // Get dwarf parser
             let file = fs::File::open(&self.binary_name).unwrap();
             let mmap = unsafe { Mmap::map(&file).unwrap() };
@@ -77,13 +78,63 @@ pub mod backtrace {
             // The dwarf parser
             let dwarf = dwarf_cow.borrow(&borrow_section);
 
-            ip = register::read_register(register::GeneralPurposeRegister::PC);
+            // Get the instruction pointer value
+            let mut ip: u64 =register::read_register(register::GeneralPurposeRegister::PC);
+            println!("[IP] = {:x}", ip);
+            // Convert the instruction pointer value to a static address
+            ip -= self.code_address;
+
+            // Get the stack pointer value
+            let mut sp: u64 =register::read_register(register::GeneralPurposeRegister::SP);
+
+            // Eh frame
+            let text_section = object.section_by_name(".text").unwrap();
+            let object_eh_frame = object.section_by_name(".eh_frame").unwrap();
+
+            let eh_frame_raw = object_eh_frame.data();
+            let eh_frame = gimli::EhFrame::new(&eh_frame_raw, gimli::NativeEndian);
+            let mut ctx = gimli::UninitializedUnwindContext::new();
+            let bases = gimli::BaseAddresses::default()
+                        .set_text(text_section.address())
+                        .set_eh_frame(object_eh_frame.address());
+
 
             // Getting the function name
-            let function_name = self.get_function_name(&dwarf, ip - self.code_address)
+            let function_name = self.get_function_name(&dwarf, ip)
                                 .expect("No function was found at that address!");
 
-            println!("The current function name is {}!", function_name);
+            println!("{}", function_name);
+
+            // Get the unwind info for the current instruction pointer value
+            let unwind_info = eh_frame.unwind_info_for_address(&bases, &mut ctx, ip, gimli::UnwindSection::cie_from_offset)
+                              .unwrap();
+            println!("{:?}", unwind_info);
+
+            match unwind_info.cfa() {
+                gimli::CfaRule::RegisterAndOffset { register, offset } => {
+                    if let gimli::Register(7) = register {
+                        // Now sp is the CFA
+                        sp = ((sp as i64) + *offset) as u64;
+                    }
+                }
+
+                gimli::CfaRule::Expression(expression) => {
+                    // TODO
+                    println!("TO BE IMPLEMENTED");
+                }
+            }
+
+            // Only return address register is of interest
+            let ip_rule = unwind_info.register(gimli::Register(16));
+
+            // Only offset rule supported now
+            if let gimli::RegisterRule::Offset(offset) = ip_rule {
+                println!("ip is now {:x}", ip + self.code_address);
+                println!("sp3: {}", (sp as i64 + offset) as u64);
+                ip = register::access_memory((sp as i64 + offset) as u64) - self.code_address;
+                println!("ip is now {:x}", ip + self.code_address);
+            }
+
         }
 
         pub fn get_function_name(&self,
