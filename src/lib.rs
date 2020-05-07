@@ -129,7 +129,7 @@ pub mod backtrace {
                         }
                     }
 
-                    gimli::CfaRule::Expression(expression) => {
+                    gimli::CfaRule::Expression(_) => {
                         // TODO
                         println!("TO BE IMPLEMENTED");
                     }
