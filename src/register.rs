@@ -22,10 +22,11 @@ pub fn access_memory(address: u64) -> u64 {
     let mut ret: u64;
 
     unsafe {
-        asm!("mov rax, $0\nmov rbx, [rax]"
-            : "={rbx}"(ret)
+        asm!("mov rax, $0\nmov rax, [rax]"
+            : "={rax}"(ret)
             : "r" (address)
-            : : "intel")
+            : "rax"
+            : "intel");
     }
 
     ret
