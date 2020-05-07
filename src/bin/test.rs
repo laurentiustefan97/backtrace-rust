@@ -13,7 +13,6 @@ fn foo() {
     bar();
 }
 
-#[inline(always)]
 fn main() {
     foo();
 }
