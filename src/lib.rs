@@ -3,18 +3,6 @@
 mod register;
 mod address;
 
-// The debug version
-#[cfg(feature = "logging")]
-macro_rules! dlog {
-    ($( $args:expr ),*) => { println!( $( $args ),* ); }
-}
-
-// Non-debug version
-#[cfg(not(feature = "logging"))]
-macro_rules! dlog {
-    ($( $args:expr ),*) => {}
-}
-
 pub mod backtrace {
     use super::register;
     use super::address;
@@ -48,7 +36,7 @@ pub mod backtrace {
 
         // The entry point of the backtrace process
         pub fn unwind_stack(&self) {
-            let mut unwind_index = -1;
+            let mut function_index = -1;
             // Get dwarf parser
             let file = fs::File::open(&self.binary_name).unwrap();
             let mmap = unsafe { Mmap::map(&file).unwrap() };
@@ -103,10 +91,10 @@ pub mod backtrace {
                 let function_name = self.get_function_name(&dwarf, ip)
                                     .expect("No function was found at that address!");
                 
-                if unwind_index != -1 {
-                    println!("{}: {}", unwind_index, function_name);
+                if function_index != -1 {
+                    println!("{}: {}", function_index, function_name);
                 }
-                unwind_index += 1;
+                function_index += 1;
 
                 // Get the unwind info for the current instruction pointer value
                 let unwind_result = eh_frame.unwind_info_for_address(&bases, &mut ctx, ip,
@@ -118,8 +106,6 @@ pub mod backtrace {
                 }
 
                 let unwind_info = unwind_result.unwrap();
-
-                // println!("{:?}", unwind_info);
 
                 match unwind_info.cfa() {
                     gimli::CfaRule::RegisterAndOffset { register, offset } => {
@@ -163,26 +149,21 @@ pub mod backtrace {
                         let mut low_pc_addr = 0;
                         let mut high_pc_offset = 0;
 
-                        dlog!("Found a function tag");
-
                         let name_attr = entry.attr_value(gimli::DW_AT_name)?;
 
                         let low_pc_attr = entry.attr_value(gimli::DW_AT_low_pc)?;
                         if let Some(gimli::AttributeValue::Addr(addr)) = low_pc_attr {
-                            dlog!("The low pc is 0x{:x}", addr);
                             low_pc_addr = addr;
                         }
 
                         let high_pc_attr = entry.attr_value(gimli::DW_AT_high_pc)?;
                         if let Some(gimli::AttributeValue::Udata(offset)) = high_pc_attr {
-                            dlog!("The high pc has the offset 0x{:x}", offset);
                             high_pc_offset = offset;
                         }
 
                         // Search the given address in the current function PC interval
                         if address >= low_pc_addr && address < low_pc_addr + high_pc_offset {
                             let mut function_name: &str = "";
-                            dlog!("Found the function with the address {}", address);
 
                             // Parse the name attribute
 
@@ -199,13 +180,9 @@ pub mod backtrace {
                             }
 
                             if function_name != "" {
-                                dlog!("The function name is {}", function_name);
-
                                 return Ok(String::from(function_name));
                             }
                         }
-
-                        dlog!("");
                     }
                 }
             }
