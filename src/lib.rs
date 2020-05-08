@@ -126,7 +126,10 @@ pub mod backtrace {
 
                 // Only offset rule supported now
                 if let gimli::RegisterRule::Offset(offset) = ip_rule {
-                    ip = register::access_memory((sp as i64 + offset) as u64) - self.code_address;
+                    // Access the memory value where the return address is stored
+                    // and translate it into a static address
+                    let saved_return_address = (sp as i64 + offset) as *const u64;
+                    ip = register::access_memory(saved_return_address) - self.code_address;
                 }
             }
         }
