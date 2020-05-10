@@ -87,11 +87,11 @@ pub mod backtrace {
                         .set_eh_frame(object_eh_frame.address());
 
             loop {
-                // Getting the function name
-                let function_name = self.get_function_name(&dwarf, ip)
-                                    .expect("No function was found at that address!");
-                
                 if function_index != -1 {
+                    // Getting the function name
+                    let function_name = self.get_function_name(&dwarf, ip)
+                                        .expect("No function was found at that address!");
+
                     println!("{}: {}", function_index, function_name);
                 }
                 function_index += 1;
@@ -137,6 +137,7 @@ pub mod backtrace {
         fn get_function_name(&self,
                              dwarf: &gimli::Dwarf<gimli::EndianSlice<'_, gimli::RunTimeEndian>>,
                              address: u64) -> Result<String, gimli::Error> {
+            let mut result: String = String::from("Name unknown");
             // Iterate over all compilation units.
             let mut iter = dwarf.units();
 
@@ -183,14 +184,55 @@ pub mod backtrace {
                             }
 
                             if function_name != "" {
-                                return Ok(String::from(function_name));
+                                result = String::from(function_name);
+                                // return Ok(String::from(function_name));
+                            }
+                        }
+                    } else if entry.tag() == gimli::DW_TAG_inlined_subroutine {
+                        // println!("here yea");
+                        let mut low_pc_addr = 0;
+                        let mut high_pc_offset = 0;
+
+                        let low_pc_attr = entry.attr_value(gimli::DW_AT_low_pc)?;
+                        if let Some(gimli::AttributeValue::Addr(addr)) = low_pc_attr {
+                            low_pc_addr = addr;
+                        }
+
+                        let high_pc_attr = entry.attr_value(gimli::DW_AT_high_pc)?;
+                        if let Some(gimli::AttributeValue::Udata(offset)) = high_pc_attr {
+                            high_pc_offset = offset;
+                        }
+
+                        // Search the given address in the current function PC interval
+                        if address >= low_pc_addr && address <= low_pc_addr + high_pc_offset {
+                            // Get the abstract origin
+                            let abstract_origin = entry.attr_value(gimli::DW_AT_abstract_origin)?;
+
+                            if let Some(gimli::AttributeValue::UnitRef(unit_offset)) = abstract_origin {
+                                // let abstract_entry = dwarf.entry(unit_offset);
+                                let mut origin_entries_it = unit.entries_at_offset(unit_offset)?;
+                                let origin_entry = origin_entries_it.next_dfs()?;
+
+                                if let Some((_, origin_entry)) = origin_entry {
+                                    let name_attr = origin_entry.attr_value(gimli::DW_AT_name)?;
+
+                                    // The DW_AT_name parsed for Rust binaries is AttributeValue::DebugStrRef
+                                    if let Some(gimli::AttributeValue::DebugStrRef(offset)) = name_attr {
+                                        if let Ok(s) = dwarf.debug_str.get_str(offset) {
+                                            println!("inline: {}", s.to_string()?);
+                                            // function_name = s.to_string()?;
+                                        }
+                                    }
+
+                                }
                             }
                         }
                     }
                 }
             }
 
-            Ok(String::from("Name unknown"))
+            // Ok(String::from("Name unknown"))
+            Ok(result)
         }
     }
 }
