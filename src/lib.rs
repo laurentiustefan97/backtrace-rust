@@ -87,12 +87,22 @@ pub mod backtrace {
                         .set_eh_frame(object_eh_frame.address());
 
             loop {
+                // Don't print the current function name
                 if function_index != -1 {
                     // Getting the function name
-                    let function_name = self.get_function_name(&dwarf, ip)
-                                        .expect("No function was found at that address!");
+                    let mut function_names = self.get_function_name(&dwarf, ip)
+                                         .expect("No function was found at that address!");
 
-                    println!("{}: {}", function_index, function_name);
+                    // No function found at that address => should not happen soon
+                    if function_names.len() == 0 {
+                        function_names.insert(0, String::from("Name unknown"));
+                    }
+
+                    println!("{}: {}", function_index, function_names[0]);
+
+                    for function_name in &function_names[1..] {
+                        println!("   {}", function_name);
+                    }
                 }
                 function_index += 1;
 
@@ -136,10 +146,11 @@ pub mod backtrace {
 
         fn get_function_name(&self,
                              dwarf: &gimli::Dwarf<gimli::EndianSlice<'_, gimli::RunTimeEndian>>,
-                             address: u64) -> Result<String, gimli::Error> {
-            let mut result: String = String::from("Name unknown");
+                             address: u64) -> Result<Vec<String>, gimli::Error> {
             // Iterate over all compilation units.
             let mut iter = dwarf.units();
+            let mut function_found = false;
+            let mut function_names = Vec::new();
 
             while let Some(header) = iter.next()? {
                 // Parse the abbreviations and other information for this compilation unit.
@@ -150,6 +161,12 @@ pub mod backtrace {
                 while let Some((_, entry)) = entries.next_dfs()? {
                     // If we find an entry for a function, print it
                     if entry.tag() == gimli::DW_TAG_subprogram {
+                        // If we finished iterating over all the searched function children
+                        // we can stop the DWARF section iteration
+                        if function_found == true {
+                            break;
+                        }
+
                         let mut low_pc_addr = 0;
                         let mut high_pc_offset = 0;
 
@@ -178,15 +195,8 @@ pub mod backtrace {
                                 }
                             }
 
-                            // The DW_AT_name parsed for C binaries is AttributeValue::String
-                            if let Some(gimli::AttributeValue::String(slice)) = name_attr {
-                                function_name = slice.to_string()?;
-                            }
-
-                            if function_name != "" {
-                                result = String::from(function_name);
-                                // return Ok(String::from(function_name));
-                            }
+                            function_found = true;
+                            function_names.insert(0, String::from(function_name));
                         }
                     } else if entry.tag() == gimli::DW_TAG_inlined_subroutine {
                         // println!("here yea");
@@ -219,8 +229,8 @@ pub mod backtrace {
                                     // The DW_AT_name parsed for Rust binaries is AttributeValue::DebugStrRef
                                     if let Some(gimli::AttributeValue::DebugStrRef(offset)) = name_attr {
                                         if let Ok(s) = dwarf.debug_str.get_str(offset) {
-                                            println!("inline: {}", s.to_string()?);
-                                            // function_name = s.to_string()?;
+                                            // Insert in the array of function names
+                                            function_names.insert(0, String::from(s.to_string()?));
                                         }
                                     }
 
@@ -232,7 +242,7 @@ pub mod backtrace {
             }
 
             // Ok(String::from("Name unknown"))
-            Ok(result)
+            Ok(function_names)
         }
     }
 }
