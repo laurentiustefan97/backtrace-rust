@@ -15,6 +15,8 @@ pub mod backtrace {
     use std::result::Result;
     use std::env;
 
+    type CpuRegister = register::CpuRegister;
+
     pub struct BacktraceGenerator {
         binary_name: String,
         pub code_address: u64,
@@ -68,12 +70,12 @@ pub mod backtrace {
             let dwarf = dwarf_cow.borrow(&borrow_section);
 
             // Get the instruction pointer value
-            let mut ip: u64 = register::read_register(register::GeneralPurposeRegister::PC);
+            let mut ip: u64 = register::read_register(CpuRegister::PC);
             // Convert the instruction pointer value to a static address
             ip -= self.code_address;
 
             // Get the stack pointer value
-            let mut sp: u64 = register::read_register(register::GeneralPurposeRegister::SP);
+            let mut sp: u64 = register::read_register(CpuRegister::SP);
 
             // Eh frame
             let text_section = object.section_by_name(".text").unwrap();
@@ -119,7 +121,9 @@ pub mod backtrace {
 
                 match unwind_info.cfa() {
                     gimli::CfaRule::RegisterAndOffset { register, offset } => {
-                        if let gimli::Register(7) = register {
+                        let gimli::Register(reg_idx) = register;
+
+                        if let Some(CpuRegister::SP) = register::reg_idx_dwarf_to_cpu(*reg_idx) {
                             // Now sp is the CFA
                             sp = ((sp as i64) + *offset) as u64;
                         }
@@ -132,7 +136,8 @@ pub mod backtrace {
                 }
 
                 // Only return address register is of interest
-                let ip_rule = unwind_info.register(gimli::Register(16));
+                let ra_idx = register::reg_idx_cpu_to_dwarf(CpuRegister::RA).unwrap();
+                let ip_rule = unwind_info.register(gimli::Register(ra_idx));
 
                 // Only offset rule supported now
                 if let gimli::RegisterRule::Offset(offset) = ip_rule {
