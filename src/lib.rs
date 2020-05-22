@@ -11,6 +11,7 @@ pub mod backtrace {
     use object::read::ObjectSection;
     use memmap::Mmap;
     use gimli::UnwindSection;
+    use rustc_demangle::demangle;
     use std::{fs, borrow};
     use std::result::Result;
     use std::env;
@@ -92,7 +93,7 @@ pub mod backtrace {
                 // Don't print the current function name
                 if function_index != -1 {
                     // Getting the function name
-                    let mut function_names = self.get_function_name(&dwarf, ip)
+                    let mut function_names = self.find_functions_addr(&dwarf, ip)
                                          .expect("No function was found at that address!");
 
                     // No function found at that address => should not happen soon
@@ -100,10 +101,10 @@ pub mod backtrace {
                         function_names.insert(0, String::from("Name unknown"));
                     }
 
-                    println!("{}: {}", function_index, function_names[0]);
+                    println!("{:>4}: {}", function_index, function_names[0]);
 
                     for function_name in &function_names[1..] {
-                        println!("   {}", function_name);
+                        println!("{:>6}{}", "", function_name);
                     }
                 }
                 function_index += 1;
@@ -151,7 +152,39 @@ pub mod backtrace {
 
         fn get_function_name(&self,
                              dwarf: &gimli::Dwarf<gimli::EndianSlice<'_, gimli::RunTimeEndian>>,
-                             address: u64) -> Result<Vec<String>, gimli::Error> {
+                             entry: &gimli::DebuggingInformationEntry<'_, '_, gimli::EndianSlice<'_, gimli::RunTimeEndian>, usize>)
+                             -> Result<String, gimli::Error> {
+            // Parse the DW_AT_linkage_name attribute
+            let mangled_name_attr = entry.attr_value(gimli::DW_AT_linkage_name)?;
+
+            if let Some(gimli::AttributeValue::DebugStrRef(offset)) = mangled_name_attr {
+                if let Ok(s) = dwarf.debug_str.get_str(offset) {
+                    let mangled_name = s.to_string()?;
+                    let demangled_name: String = demangle(mangled_name).to_string();
+                    if let Some(trim_pos) = demangled_name.rfind("::") {
+                        return Ok(String::from(&demangled_name[0..trim_pos]));
+                    }
+                }
+            }
+
+            // If there is no DW_AT_linkage_name attribute (should not happen)
+
+            // Parse the DW_AT_name attribute
+            let name_attr = entry.attr_value(gimli::DW_AT_name)?;
+            if let Some(gimli::AttributeValue::DebugStrRef(offset)) = name_attr {
+                if let Ok(s) = dwarf.debug_str.get_str(offset) {
+                    return Ok(String::from(s.to_string()?));
+                }
+            }
+
+            // Return an arbitrary error if no name is found (maybe change in future)
+            return Err(gimli::Error::NoEntryAtGivenOffset);
+        }
+
+        // Find the function and the possible inlined function at the given address
+        fn find_functions_addr(&self,
+                               dwarf: &gimli::Dwarf<gimli::EndianSlice<'_, gimli::RunTimeEndian>>,
+                               address: u64) -> Result<Vec<String>, gimli::Error> {
             // Iterate over all compilation units.
             let mut iter = dwarf.units();
             let mut function_found = false;
@@ -175,8 +208,6 @@ pub mod backtrace {
                         let mut low_pc_addr = 0;
                         let mut high_pc_offset = 0;
 
-                        let name_attr = entry.attr_value(gimli::DW_AT_name)?;
-
                         let low_pc_attr = entry.attr_value(gimli::DW_AT_low_pc)?;
                         if let Some(gimli::AttributeValue::Addr(addr)) = low_pc_attr {
                             low_pc_addr = addr;
@@ -189,19 +220,12 @@ pub mod backtrace {
 
                         // Search the given address in the current function PC interval
                         if address >= low_pc_addr && address < low_pc_addr + high_pc_offset {
-                            let mut function_name: &str = "";
+                            let curr_function_name = self.get_function_name(dwarf, entry);
 
-                            // Parse the name attribute
-
-                            // The DW_AT_name parsed for Rust binaries is AttributeValue::DebugStrRef
-                            if let Some(gimli::AttributeValue::DebugStrRef(offset)) = name_attr {
-                                if let Ok(s) = dwarf.debug_str.get_str(offset) {
-                                    function_name = s.to_string()?;
-                                }
+                            if let Ok(curr_function_name) = curr_function_name {
+                                function_found = true;
+                                function_names.insert(0, curr_function_name);
                             }
-
-                            function_found = true;
-                            function_names.insert(0, String::from(function_name));
                         }
                     } else if entry.tag() == gimli::DW_TAG_inlined_subroutine {
                         let mut low_pc_addr = 0;
@@ -217,8 +241,8 @@ pub mod backtrace {
                             high_pc_offset = offset;
                         }
 
-                        // Search the given address in the current function PC interval
-                        if address >= low_pc_addr && address <= low_pc_addr + high_pc_offset {
+                        // Search the given address at the end of the interval (specific for inline functions, needs testing)
+                        if address == low_pc_addr + high_pc_offset {
                             // Get the abstract origin
                             let abstract_origin = entry.attr_value(gimli::DW_AT_abstract_origin)?;
 
@@ -228,16 +252,11 @@ pub mod backtrace {
                                 let origin_entry = origin_entries_it.next_dfs()?;
 
                                 if let Some((_, origin_entry)) = origin_entry {
-                                    let name_attr = origin_entry.attr_value(gimli::DW_AT_name)?;
+                                    let curr_function_name = self.get_function_name(dwarf, origin_entry);
 
-                                    // The DW_AT_name parsed for Rust binaries is AttributeValue::DebugStrRef
-                                    if let Some(gimli::AttributeValue::DebugStrRef(offset)) = name_attr {
-                                        if let Ok(s) = dwarf.debug_str.get_str(offset) {
-                                            // Insert in the array of function names
-                                            function_names.insert(0, String::from(s.to_string()?));
-                                        }
+                                    if let Ok(curr_function_name) = curr_function_name {
+                                        function_names.insert(0, curr_function_name);
                                     }
-
                                 }
                             }
                         }
