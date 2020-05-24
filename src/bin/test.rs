@@ -1,4 +1,4 @@
-use backtrace::backtrace::BacktraceGenerator;
+use backtrace::backtrace::Backtrace;
 
 trait MyTrait {
     fn test(&self);
@@ -21,10 +21,9 @@ impl MyTrait for MyStruct {
 }
 
 fn tazz() {
-    let backtrace_generator = BacktraceGenerator::new();
-    backtrace_generator.unwind_stack();
+    let bt = Backtrace::new();
+    println!("{:?}", bt);
 }
-
 
 #[inline(always)]
 fn taz() {

@@ -14,33 +14,109 @@ pub mod backtrace {
     use std::{fs, borrow};
     use std::result::Result;
     use std::env;
+    use std::fmt;
 
     type CpuRegister = register::CpuRegister;
 
-    pub struct BacktraceGenerator {
-        binary_name: String,
-        pub code_address: u64,
+    // A backtrace symbol
+    pub struct BacktraceSymbol {
+        name: Option<String>,
+        file: Option<String>,
+        line: Option<u32>,
     }
 
-    impl BacktraceGenerator {
-        pub fn new() -> BacktraceGenerator {
-            // Get the executable name at runtime
+    impl BacktraceSymbol {
+        pub fn new(name: Option<String>, file: Option<String>, line: Option<u32>) -> BacktraceSymbol {
+            BacktraceSymbol {
+                name,
+                file,
+                line,
+            }
+        }
+    }
+
+    pub struct BacktraceFrame {
+        symbols: Vec<BacktraceSymbol>,
+    }
+
+    impl BacktraceFrame {
+        pub fn new(symbols: Vec<BacktraceSymbol>) -> BacktraceFrame {
+            BacktraceFrame {
+                symbols,
+            }
+        }
+    }
+
+    pub struct Backtrace {
+        // Frames here are listed from top-to-bottom of the stack
+        frames: Vec<BacktraceFrame>,
+    }
+
+    impl Backtrace {
+        pub fn parse_frames(addr2line_ctx: &addr2line::Context<gimli::EndianSlice<gimli::RunTimeEndian>>,
+                            code_address: u64) -> Vec<BacktraceSymbol> {
+            // The vector with the parsed backtrace frames
+            let mut symbols_vec = Vec::new();
+
+            // Find functions at current code address (-1 in order to detect inline function as well)
+            let frames = addr2line_ctx.find_frames(code_address - 1);
+
+            match frames {
+                Ok(mut frames_iter) => {
+                    // Iterate over the functions found
+                    while let Ok(Some(frame)) = frames_iter.next() {
+                        let function_name;
+                        let function_file;
+                        let function_line;
+
+                        let function = frame.function;
+                        if let Some(function) = function {
+                            function_name = Some(String::from(function.demangle().unwrap()));
+                        } else {
+                            function_name = None;
+                        }
+
+                        let location = frame.location;
+                        if let Some(location) = location {
+                            let file = location.file;
+                            if let Some(file) = file {
+                                function_file = Some(String::from(file));
+                            } else {
+                                function_file = None;
+                            }
+
+                            function_line = location.line;
+                        } else {
+                            function_file = None;
+                            function_line = None;
+                        }
+
+                        symbols_vec.push(BacktraceSymbol::new(function_name, function_file, function_line));
+                    }
+
+                    if symbols_vec.len() == 0 {
+                        symbols_vec.push(BacktraceSymbol::new(Some(String::from("Name unknown")), None, None));
+                    }
+                }
+
+                Err(_) => {
+                    symbols_vec.push(BacktraceSymbol::new(Some(String::from("Name unknown")), None, None));
+                }
+            }
+
+            symbols_vec
+        }
+
+        pub fn new() -> Backtrace {
+            // Get the executable name
             let exec_name = env::current_exe().unwrap();
             let exec_name = exec_name.to_str().unwrap();
 
             let code_address = address::get_code_address(exec_name);
 
-            BacktraceGenerator {
-                binary_name: String::from(exec_name),
-                code_address,
-            }
-        }
-
-        // The entry point of the backtrace process
-        pub fn unwind_stack(&self) {
             let mut function_index = -1;
             // Get dwarf parser
-            let file = fs::File::open(&self.binary_name).unwrap();
+            let file = fs::File::open(&exec_name).unwrap();
             let mmap = unsafe { Mmap::map(&file).unwrap() };
             let object = object::File::parse(&*mmap).unwrap();
             let endian = if object.is_little_endian() {
@@ -57,7 +133,7 @@ pub mod backtrace {
 
             let load_section_sup = |_| Ok(borrow::Cow::Borrowed(&[][..]));
 
-            // Load all the sections.
+            // Load all the sections
             let dwarf_cow = gimli::Dwarf::load(&load_section, &load_section_sup).unwrap();
 
             // Borrow a `Cow<[u8]>` to create an `EndianSlice`.
@@ -70,12 +146,13 @@ pub mod backtrace {
             let dwarf = dwarf_cow.borrow(&borrow_section);
 
             // The addr2line object
-            let addr2line_ctx = addr2line::Context::from_dwarf(dwarf).expect("Could not get addr2line context from dwarf object!");
+            let addr2line_ctx = addr2line::Context::from_dwarf(dwarf)
+                        .expect("Could not get addr2line context from dwarf object!");
 
             // Get the instruction pointer value
             let mut ip: u64 = register::read_register(CpuRegister::PC);
             // Convert the instruction pointer value to a static address
-            ip -= self.code_address;
+            ip -= code_address;
 
             // Get the stack pointer value
             let mut sp: u64 = register::read_register(CpuRegister::SP);
@@ -91,48 +168,22 @@ pub mod backtrace {
                         .set_text(text_section.address())
                         .set_eh_frame(object_eh_frame.address());
 
+            // The frames of the current backtrace
+            let mut frames_vec = Vec::new();
+
+            // Unwind the stack
             loop {
-                // Don't print the current function name
+                // Don't parse the first frame information (contains the current function)
                 if function_index != -1 {
-                    // Find functions at current code address (-1 in order to detect inline function as well)
-                    let frames = addr2line_ctx.find_frames(ip - 1);
-                    match frames {
-                        Ok(mut frames_iter) => {
-                            let mut count = 0;
-
-                            // Iterate over the functions found
-                            while let Ok(Some(frame)) = frames_iter.next() {
-                                let function = frame.function.unwrap();
-                                let location = frame.location.unwrap();
-
-                                let function_name = function.demangle().unwrap();
-                                let file = location.file.unwrap();
-                                let line = location.line.unwrap();
-
-                                if count == 0 {
-                                    println!("{:>4}: {}", function_index, function_name);
-                                } else {
-                                    println!("{:>6}{}", "", function_name);
-                                }
-                                println!("{:>12} at {}:{}", "", file, line);
-
-                                count += 1;
-                            }
-
-                            if count == 0 {
-                                println!("{:>4}: Name unknown", function_index);
-                            }
-                        }
-
-                        Err(_) => println!("{:>4}: Name unknown", function_index)
-                    }
+                    let symbols_vec = Backtrace::parse_frames(&addr2line_ctx, ip);
+                    frames_vec.push(BacktraceFrame::new(symbols_vec));
                 }
                 function_index += 1;
 
                 // Get the unwind info for the current instruction pointer value
                 let unwind_result = eh_frame.unwind_info_for_address(&bases, &mut ctx, ip,
                                                                      gimli::UnwindSection::cie_from_offset);
-                
+
                 // We finished generating the backtrace
                 if let Err(_) = unwind_result {
                     break;
@@ -165,9 +216,45 @@ pub mod backtrace {
                     // Access the memory value where the return address is stored
                     // and translate it into a static address
                     let saved_return_address = (sp as i64 + offset) as *const u64;
-                    ip = register::access_memory(saved_return_address) - self.code_address;
+                    ip = register::access_memory(saved_return_address) - code_address;
                 }
             }
+
+            Backtrace {
+                frames: frames_vec,
+            }
+        }
+    }
+
+    impl fmt::Debug for Backtrace {
+        fn fmt(&self, fmt: &mut fmt::Formatter<'_>) -> fmt::Result {
+            let mut frame_index = 0;
+
+            for frame in &self.frames {
+                let mut symbol_index = 0;
+
+                for symbol in &frame.symbols {
+                    if symbol_index == 0 {
+                        writeln!(fmt, "{:>4}: {}", frame_index, symbol.name.as_ref().unwrap()).unwrap();
+                    } else {
+                        writeln!(fmt, "{:>6}{}", "", symbol.name.as_ref().unwrap()).unwrap();
+                    }
+
+                    let symbol_file = symbol.file.as_ref();
+
+                    // We consider that if we have the symbol's file, we will have the symbol's line as well
+                    // ???
+                    if let Some(_) = symbol_file {
+                        writeln!(fmt, "{:>12} at {}:{}", "", symbol.file.as_ref().unwrap(), symbol.line.as_ref().unwrap()).unwrap();
+                    }
+
+                    symbol_index += 1;
+                }
+
+                frame_index += 1;
+            }
+
+            write!(fmt, "")
         }
     }
 }
