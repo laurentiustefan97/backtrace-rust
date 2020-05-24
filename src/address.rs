@@ -1,7 +1,7 @@
 use std::process;
 use std::fs;
 
-pub fn get_code_address(_binary_name: &str) -> u64 {
+pub fn get_code_address(_binary_name: &str) -> usize {
     let pid = process::id();
     let proc_maps_filename = format!("/proc/{}/maps", pid);
 
@@ -9,5 +9,5 @@ pub fn get_code_address(_binary_name: &str) -> u64 {
 
     let code_address_hex = contents.split("-").next().unwrap();
 
-    u64::from_str_radix(code_address_hex, 16).unwrap()
+    usize::from_str_radix(code_address_hex, 16).unwrap()
 }

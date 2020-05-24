@@ -8,7 +8,7 @@ pub enum CpuRegister {
 }
 
 #[inline(always)]
-pub fn read_register(register: CpuRegister) -> u64 {
+pub fn read_register(register: CpuRegister) -> usize {
     match register {
         CpuRegister::SP => get_sp_value(),
         CpuRegister::PC => get_pc_value(),
@@ -18,8 +18,8 @@ pub fn read_register(register: CpuRegister) -> u64 {
 }
 
 #[inline(always)]
-pub fn access_memory(address_ptr: *const u64) -> u64 {
-    let ret: u64;
+pub fn access_memory(address_ptr: *const usize) -> usize {
+    let ret: usize;
 
     unsafe { ret = *address_ptr; }
 
@@ -53,8 +53,8 @@ pub fn reg_idx_cpu_to_dwarf(cpu_reg: CpuRegister) -> Result<u16, ()> {
 
 #[inline(always)]
 #[cfg(any(target_arch = "x86_64"))]
-fn get_sp_value() -> u64 {
-    let mut rsp: u64;
+fn get_sp_value() -> usize {
+    let mut rsp: usize;
 
     unsafe {
         asm!("" : "={rsp}"(rsp) : : : "intel")
@@ -65,11 +65,11 @@ fn get_sp_value() -> u64 {
 
 #[inline(always)]
 #[cfg(any(target_arch = "x86_64"))]
-fn get_pc_value() -> u64 {
-    let mut rip: u64;
+fn get_pc_value() -> usize {
+    let mut rip: usize;
 
     unsafe {
-        asm!("lea rax, [rip]" : "={rax}"(rip) : : : "intel")
+        asm!("call 1f\n1: pop rax" : "={rax}"(rip) : : : "intel")
     }
 
     rip
@@ -101,8 +101,8 @@ pub fn reg_idx_cpu_to_dwarf(cpu_reg: CpuRegister) -> Result<u16, ()> {
 
 #[inline(always)]
 #[cfg(any(target_arch = "x86"))]
-fn get_sp_value() -> u64 {
-    let mut esp: u64;
+fn get_sp_value() -> usize {
+    let mut esp: usize;
 
     unsafe {
         asm!("" : "={esp}"(esp) : : : "intel")
@@ -113,11 +113,11 @@ fn get_sp_value() -> u64 {
 
 #[inline(always)]
 #[cfg(any(target_arch = "x86"))]
-fn get_pc_value() -> u64 {
-    let mut eip: u64;
+fn get_pc_value() -> usize {
+    let mut eip: usize;
 
     unsafe {
-        asm!("lea eax, [eip]" : "={eax}"(eip) : : : "intel")
+        asm!("call 1f\n1: pop eax" : "={eax}"(eip) : : : "intel")
     }
 
     eip

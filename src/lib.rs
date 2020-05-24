@@ -7,14 +7,10 @@ pub mod backtrace {
     use super::register;
     use super::address;
 
-    use object::Object;
-    use object::read::ObjectSection;
+    use object::{Object, read::ObjectSection};
     use memmap::Mmap;
     use gimli::UnwindSection;
-    use std::{fs, borrow};
-    use std::result::Result;
-    use std::env;
-    use std::fmt;
+    use std::{fs, borrow, result::Result, env, fmt};
 
     type CpuRegister = register::CpuRegister;
 
@@ -54,12 +50,12 @@ pub mod backtrace {
 
     impl Backtrace {
         pub fn parse_frames(addr2line_ctx: &addr2line::Context<gimli::EndianSlice<gimli::RunTimeEndian>>,
-                            code_address: u64) -> Vec<BacktraceSymbol> {
+                            code_address: usize) -> Vec<BacktraceSymbol> {
             // The vector with the parsed backtrace frames
             let mut symbols_vec = Vec::new();
 
             // Find functions at current code address (-1 in order to detect inline function as well)
-            let frames = addr2line_ctx.find_frames(code_address - 1);
+            let frames = addr2line_ctx.find_frames((code_address - 1) as u64);
 
             match frames {
                 Ok(mut frames_iter) => {
@@ -150,12 +146,13 @@ pub mod backtrace {
                         .expect("Could not get addr2line context from dwarf object!");
 
             // Get the instruction pointer value
-            let mut ip: u64 = register::read_register(CpuRegister::PC);
+            let mut ip: usize = register::read_register(CpuRegister::PC);
+
             // Convert the instruction pointer value to a static address
             ip -= code_address;
 
             // Get the stack pointer value
-            let mut sp: u64 = register::read_register(CpuRegister::SP);
+            let mut sp: usize = register::read_register(CpuRegister::SP);
 
             // Eh frame
             let text_section = object.section_by_name(".text").unwrap();
@@ -181,7 +178,7 @@ pub mod backtrace {
                 function_index += 1;
 
                 // Get the unwind info for the current instruction pointer value
-                let unwind_result = eh_frame.unwind_info_for_address(&bases, &mut ctx, ip,
+                let unwind_result = eh_frame.unwind_info_for_address(&bases, &mut ctx, ip as u64,
                                                                      gimli::UnwindSection::cie_from_offset);
 
                 // We finished generating the backtrace
@@ -197,7 +194,7 @@ pub mod backtrace {
 
                         if let Some(CpuRegister::SP) = register::reg_idx_dwarf_to_cpu(*reg_idx) {
                             // Now sp is the CFA
-                            sp = ((sp as i64) + *offset) as u64;
+                            sp = ((sp as isize) + (*offset as isize)) as usize;
                         }
                     }
 
@@ -215,7 +212,7 @@ pub mod backtrace {
                 if let gimli::RegisterRule::Offset(offset) = ip_rule {
                     // Access the memory value where the return address is stored
                     // and translate it into a static address
-                    let saved_return_address = (sp as i64 + offset) as *const u64;
+                    let saved_return_address = (sp as i64 + offset) as *const usize;
                     ip = register::access_memory(saved_return_address) - code_address;
                 }
             }
