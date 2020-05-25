@@ -147,7 +147,16 @@ pub mod backtrace {
             let mut ip: usize = register::read_register(CpuRegister::PC);
 
             // Get the start address of the .text section
-            let code_address = address::get_start_section(ip).unwrap();
+            let code_address: usize;
+
+            // On musl, the .text section is not relocated
+            // TODO change this such that determining whether the section has been relocated
+            // to be done at runtime
+            if cfg!(target_env = "musl") {
+                code_address = 0;
+            } else {
+                code_address = address::get_start_section(ip).unwrap();
+            }
 
             // Convert the instruction pointer value to a static address
             ip -= code_address;
