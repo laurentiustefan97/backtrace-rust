@@ -1,13 +1,25 @@
-use std::process;
-use std::fs;
+use std::{process, fs, io::{BufRead, BufReader}};
 
-pub fn get_code_address(_binary_name: &str) -> usize {
+// Gets the start address of the section in which section_addr belongs
+pub fn get_start_section(section_addr: usize) -> Result<usize, ()> {
     let pid = process::id();
     let proc_maps_filename = format!("/proc/{}/maps", pid);
 
-    let contents = fs::read_to_string(proc_maps_filename).expect("Could not open the file!");
+    let file = fs::File::open(proc_maps_filename).unwrap();
+    let reader = BufReader::new(file);
 
-    let code_address_hex = contents.split("-").next().unwrap();
+    for (_, line) in reader.lines().enumerate() {
+        let line = line.unwrap();
 
-    usize::from_str_radix(code_address_hex, 16).unwrap()
+        let mut tokens = line.split(|c| c == '-' || c == ' ');
+
+        let section_start_addr = usize::from_str_radix(tokens.next().unwrap(), 16).unwrap();
+        let section_end_addr = usize::from_str_radix(tokens.next().unwrap(), 16).unwrap();
+
+        if section_addr >= section_start_addr && section_addr < section_end_addr {
+            return Ok(section_start_addr);
+        }
+    }
+
+    Err(())
 }

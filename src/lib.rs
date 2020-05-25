@@ -108,8 +108,6 @@ pub mod backtrace {
             let exec_name = env::current_exe().unwrap();
             let exec_name = exec_name.to_str().unwrap();
 
-            let code_address = address::get_code_address(exec_name);
-
             let mut function_index = -1;
             // Get dwarf parser
             let file = fs::File::open(&exec_name).unwrap();
@@ -147,6 +145,9 @@ pub mod backtrace {
 
             // Get the instruction pointer value
             let mut ip: usize = register::read_register(CpuRegister::PC);
+
+            // Get the start address of the .text section
+            let code_address = address::get_start_section(ip).unwrap();
 
             // Convert the instruction pointer value to a static address
             ip -= code_address;
