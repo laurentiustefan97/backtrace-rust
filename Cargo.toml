@@ -11,5 +11,4 @@ logging = []
 gimli = "0.21"
 object = "0.17"
 memmap = "0.7"
-rustc-demangle = "0.1"
 addr2line = "0.12"
