@@ -50,6 +50,7 @@ pub mod backtrace {
 
     impl Backtrace {
         pub fn parse_frames(addr2line_ctx: &addr2line::Context<gimli::EndianSlice<gimli::RunTimeEndian>>,
+                            symbol_map: &object::SymbolMap,
                             code_address: usize) -> Vec<BacktraceSymbol> {
             // The vector with the parsed backtrace frames
             let mut symbols_vec = Vec::new();
@@ -57,46 +58,58 @@ pub mod backtrace {
             // Find functions at current code address (-1 in order to detect inline function as well)
             let frames = addr2line_ctx.find_frames((code_address - 1) as u64);
 
-            match frames {
-                Ok(mut frames_iter) => {
-                    // Iterate over the functions found
-                    while let Ok(Some(frame)) = frames_iter.next() {
-                        let function_name;
-                        let function_file;
-                        let function_line;
+            if let Ok(mut frames_iter) = frames {
+                // Iterate over the functions found
+                while let Ok(Some(frame)) = frames_iter.next() {
+                    let function_name;
+                    let function_file;
+                    let function_line;
 
-                        let function = frame.function;
-                        if let Some(function) = function {
-                            function_name = Some(String::from(function.demangle().unwrap()));
-                        } else {
-                            function_name = None;
-                        }
+                    let function = frame.function;
+                    if let Some(function) = function {
+                        function_name = Some(String::from(function.demangle().unwrap()));
+                    } else {
+                        function_name = None;
+                    }
 
-                        let location = frame.location;
-                        if let Some(location) = location {
-                            let file = location.file;
-                            if let Some(file) = file {
-                                function_file = Some(String::from(file));
-                            } else {
-                                function_file = None;
-                            }
-
-                            function_line = location.line;
+                    let location = frame.location;
+                    if let Some(location) = location {
+                        let file = location.file;
+                        if let Some(file) = file {
+                            function_file = Some(String::from(file));
                         } else {
                             function_file = None;
-                            function_line = None;
                         }
 
-                        symbols_vec.push(BacktraceSymbol::new(function_name, function_file, function_line));
+                        function_line = location.line;
+                    } else {
+                        function_file = None;
+                        function_line = None;
                     }
 
-                    if symbols_vec.len() == 0 {
-                        symbols_vec.push(BacktraceSymbol::new(Some(String::from("Name unknown")), None, None));
-                    }
+                    symbols_vec.push(BacktraceSymbol::new(function_name, function_file, function_line));
                 }
+            }
 
-                Err(_) => {
-                    symbols_vec.push(BacktraceSymbol::new(Some(String::from("Name unknown")), None, None));
+            // If we could not detect any symbol from the DWARF sections
+            // we will use the ELF symbol table
+            if symbols_vec.len() == 0 {
+                // Find the symbol at the current address
+                let elf_symbol = symbol_map.get(code_address as u64);
+
+                if let Some(elf_symbol) = elf_symbol {
+                    if let Some(name) = elf_symbol.name() {
+                        let mut demangled_name = rustc_demangle::demangle(name).to_string();
+
+                        // If the demangled name has a "::" in their structure (rust symbol mangling),
+                        // get rid of it and what is afterwards
+                        // (ex. test::main::h3778bc7a1687e186 => test::main)
+                        if let Some(trim_pos) = demangled_name.rfind("::") {
+                            demangled_name = String::from(&demangled_name[0..trim_pos]);
+                        }
+
+                        symbols_vec.push(BacktraceSymbol::new(Some(demangled_name), None, None));
+                    }
                 }
             }
 
@@ -143,6 +156,9 @@ pub mod backtrace {
             let addr2line_ctx = addr2line::Context::from_dwarf(dwarf)
                         .expect("Could not get addr2line context from dwarf object!");
 
+            // The symbol table
+            let symbol_map = object.symbol_map();
+
             // Get the instruction pointer value
             let mut ip: usize = register::read_register(CpuRegister::PC);
 
@@ -182,7 +198,7 @@ pub mod backtrace {
             loop {
                 // Don't parse the first frame information (contains the current function)
                 if function_index != -1 {
-                    let symbols_vec = Backtrace::parse_frames(&addr2line_ctx, ip);
+                    let symbols_vec = Backtrace::parse_frames(&addr2line_ctx, &symbol_map, ip);
                     frames_vec.push(BacktraceFrame::new(symbols_vec));
                 }
                 function_index += 1;
