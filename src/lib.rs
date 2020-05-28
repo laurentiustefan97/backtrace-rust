@@ -62,7 +62,7 @@ pub mod backtrace {
             let mut symbols_vec = Vec::new();
 
             // Find functions at current code address (-1 in order to detect inline function as well)
-            let frames = addr2line_ctx.find_frames((code_address - 1) as u64);
+            let frames = addr2line_ctx.find_frames(code_address as u64);
 
             if let Ok(mut frames_iter) = frames {
                 // Iterate over the functions found
@@ -259,8 +259,8 @@ pub mod backtrace {
                 if let gimli::RegisterRule::Offset(offset) = ip_rule {
                     // Access the memory value where the return address is stored
                     // and translate it into a static address
-                    let saved_return_address = (sp as i64 + offset) as *const usize;
-                    ip = register::access_memory(saved_return_address) - code_address;
+                    let saved_return_address = (sp as isize + offset as isize) as *const usize;
+                    ip = register::access_memory(saved_return_address) - code_address - 1;
                 }
             }
 
