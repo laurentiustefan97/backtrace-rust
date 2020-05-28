@@ -7,12 +7,18 @@ pub mod backtrace {
     use super::register;
     use super::address;
 
-    use object::{Object, read::ObjectSection};
+    use object::{Object, read::ObjectSection, read::ObjectSegment};
     use memmap::Mmap;
     use gimli::UnwindSection;
     use std::{fs, borrow, result::Result, env, fmt};
 
     type CpuRegister = register::CpuRegister;
+
+    const STATIC: i8 = 0;
+    const DYNAMIC: i8 = 1;
+
+    const ELF_TYPE_OFFSET: usize = 0x10;
+    const ET_EXEC: u8 = 0x02;
 
     // A backtrace symbol
     pub struct BacktraceSymbol {
@@ -165,13 +171,28 @@ pub mod backtrace {
             // Get the start address of the .text section
             let code_address: usize;
 
-            // On musl, the .text section is not relocated
-            // TODO change this such that determining whether the section has been relocated
-            // to be done at runtime
-            if cfg!(target_env = "musl") {
-                code_address = 0;
-            } else {
+            // The type of linking used in the current binary
+            let linking;
+
+            {
+                // Get the first segment from the ELF
+                let data = object.segments().next().unwrap().data();
+
+                // And check the e_type field from the header
+                // ET_EXEC => static linking was used, other variant => dynamic linking
+                if data[ELF_TYPE_OFFSET] == ET_EXEC {
+                    linking = STATIC;
+                } else {
+                    linking = DYNAMIC;
+                }
+            }
+
+            if linking == DYNAMIC {
+                // In case of dynamic linking, determine the start address of the .text section
                 code_address = address::get_start_section(ip).unwrap();
+            } else {
+                // In case of static linking, consider the start address 0 (no relocation offset)
+                code_address = 0;
             }
 
             // Convert the instruction pointer value to a static address
