@@ -1,4 +1,4 @@
-use backtrace::backtrace::Backtrace;
+use backtrace_rust::backtrace::Backtrace;
 
 trait MyTrait {
     fn test(&self);
@@ -8,9 +8,7 @@ struct MyStruct { }
 
 impl MyStruct {
     fn new() -> MyStruct {
-        MyStruct {
-
-        }
+        MyStruct { }
     }
 }
 
@@ -47,9 +45,5 @@ fn foo() {
 }
 
 fn main() {
-    let mut v = [1, 2, 3, 4, 5];
-    v[0] = 5;
-    v[1] = 2;
-    v[2] = 3;
     foo();
 }

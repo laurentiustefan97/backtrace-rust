@@ -1,5 +1,5 @@
 [package]
-name = "backtrace"
+name = "backtrace-rust"
 version = "0.1.0"
 authors = ["laurentiustefan97 <steflaurentiu@gmail.com>"]
 edition = "2018"
