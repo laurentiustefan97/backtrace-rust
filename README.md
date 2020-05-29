@@ -1,7 +1,7 @@
 # Backtrace mechanism implemented in Rust
 
 ## Description
-A backtrace implementation in Rust. This is implemented using other Rust crates such as:
+A backtrace implementation written in Rust for Linux OS (ELF binaries). This is implemented using other Rust crates such as:
 - [gimli](https://github.com/gimli-rs/gimli)
 - [object](https://github.com/gimli-rs/object)
 - [memmap-rs](https://github.com/danburkert/memmap-rs)
@@ -12,25 +12,29 @@ Currently working only on **x86-64**, **x86** architectures and on **libc** and 
 
 ## Install
 Add the crate dependency in the <code>Cargo.toml</code> file.
-<pre><code>[dependencies]
+```toml
+[dependencies]
 backtrace-rust = "0.1"
 </code></pre>
+```
 
 ## Usage
 Instantiate an object of type <code>backtrace::Backtrace</code> and print it with the <code> {:?}</code> format. Example:
 
-<pre><code>use backtrace_rust::backtrace::Backtrace;
+```rust
+use backtrace_rust::backtrace::Backtrace;
 
 fn main() {
 	let bt = Backtrace::new();
 	// other code
 	println!("{:?}", bt);
 }
-</code></pre>
+```
 
 ## Examples
 There are 3 examples in the <code>examples/</code> directory. Example of running:
-<pre><code>$ cargo +nightly run --example complex_inline
+```console
+$ cargo +nightly run --example complex_inline
    0: complex_inline::tazz
              at /backtrace-rust/examples/complex_inline.rs:22
    1: complex_inline::taz
@@ -62,11 +66,10 @@ There are 3 examples in the <code>examples/</code> directory. Example of running
    7: std::rt::lang_start
              at /rustc/c20d7eecbc0928b57da8fe30b2ef8528e2bdd5be/src/libstd/rt.rs:67
    8: main
-</code></pre>
+```
 
 
 ## Limitations
-* Requires the <code>Rust nightly</code> channel for running at this moment (uses inline assembly which is not a stable feature)
-* Does not support yet using the <code>.debug_frame</code> debug section when <code> eh_frame</code> is not present
-* Can not evaluate a more complex <code>eh_frame</code> register restoring rule
-
+* Requires the `Rust nightly` channel for running at this moment (uses inline assembly which is not a stable feature)
+* Does not support yet using the `.debug_frame` debug section when `.eh_frame` is not present
+* Can not evaluate a more complex `.eh_frame` register restoring rule (in testing seems that such a functionality is not needed)
