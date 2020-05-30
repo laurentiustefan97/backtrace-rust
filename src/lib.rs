@@ -201,16 +201,43 @@ pub mod backtrace {
             // Get the stack pointer value
             let mut sp: usize = register::read_register(CpuRegister::SP);
 
-            // Eh frame
-            let text_section = object.section_by_name(".text").unwrap();
-            let object_eh_frame = object.section_by_name(".eh_frame").unwrap();
+            // One object from these 2 will be Some, the other None
+            // Using this approach since trait objects can't be used for the trait gimli::read::UnwindSection
+            let eh_frame;
+            let debug_frame;
 
-            let eh_frame_raw = object_eh_frame.data();
-            let eh_frame = gimli::EhFrame::new(&eh_frame_raw, gimli::NativeEndian);
+            let text_section = object.section_by_name(".text").unwrap();
+
+            let object_eh_frame = object.section_by_name(".eh_frame");
+            let object_debug_frame = object.section_by_name(".debug_frame");
+            let section_raw;
+
+            if let Some(ref object_eh_frame) = object_eh_frame {
+                section_raw = object_eh_frame.data();
+                eh_frame = Some(gimli::EhFrame::new(&section_raw, gimli::NativeEndian));
+                debug_frame = None;
+            } else {
+                if let Some(ref object_debug_frame) = object_debug_frame {
+                    section_raw = object_debug_frame.data();
+                    debug_frame = Some(gimli::DebugFrame::new(&section_raw, gimli::NativeEndian));
+                    eh_frame = None;
+                } else {
+                    // If neither the .eh_frame nor the .debug_frame is present , we can't unwind the stack
+                    return Backtrace { frames: Vec::new() };
+                }
+            }
+
             let mut ctx = gimli::UninitializedUnwindContext::new();
-            let bases = gimli::BaseAddresses::default()
+            let bases;
+
+            if let Some(_) = eh_frame {
+                bases = gimli::BaseAddresses::default()
                         .set_text(text_section.address())
-                        .set_eh_frame(object_eh_frame.address());
+                        .set_eh_frame(object_eh_frame.unwrap().address());
+            } else {
+                bases = gimli::BaseAddresses::default()
+                        .set_text(text_section.address());
+            }
 
             // The frames of the current backtrace
             let mut frames_vec = Vec::new();
@@ -224,9 +251,17 @@ pub mod backtrace {
                 }
                 function_index += 1;
 
+                let unwind_result;
+
                 // Get the unwind info for the current instruction pointer value
-                let unwind_result = eh_frame.unwind_info_for_address(&bases, &mut ctx, ip as u64,
+                if let Some(eh_frame) = eh_frame {
+                    unwind_result = eh_frame.unwind_info_for_address(&bases, &mut ctx, ip as u64,
                                                                      gimli::UnwindSection::cie_from_offset);
+                } else {
+                    let debug_frame = debug_frame.unwrap();
+                    unwind_result = debug_frame.unwind_info_for_address(&bases, &mut ctx, ip as u64,
+                                                                        gimli::UnwindSection::cie_from_offset);
+                }
 
                 // We finished generating the backtrace
                 if let Err(_) = unwind_result {
@@ -247,7 +282,7 @@ pub mod backtrace {
 
                     gimli::CfaRule::Expression(_) => {
                         // TODO
-                        println!("TO BE IMPLEMENTED");
+                        break;
                     }
                 }
 

@@ -70,5 +70,4 @@ $ cargo +nightly run --example complex_inline
 
 ## Limitations
 * Requires the `Rust nightly` channel for running at this moment (uses inline assembly which is not a stable feature)
-* Does not support yet using the `.debug_frame` debug section when `.eh_frame` is not present
 * Can not evaluate a more complex `.eh_frame` register restoring rule (in testing seems that such a functionality is not needed)
