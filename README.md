@@ -15,7 +15,6 @@ Add the crate dependency in the <code>Cargo.toml</code> file.
 ```toml
 [dependencies]
 backtrace-rust = "0.1"
-</code></pre>
 ```
 
 ## Usage
@@ -33,7 +32,7 @@ fn main() {
 
 ## Examples
 There are 3 examples in the <code>examples/</code> directory. Example of running:
-```console
+```
 $ cargo +nightly run --example complex_inline
    0: complex_inline::tazz
              at /backtrace-rust/examples/complex_inline.rs:22
