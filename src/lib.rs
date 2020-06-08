@@ -61,7 +61,7 @@ pub mod backtrace {
             // The vector with the parsed backtrace frames
             let mut symbols_vec = Vec::new();
 
-            // Find functions at current code address (-1 in order to detect inline function as well)
+            // Find functions at current code address
             let frames = addr2line_ctx.find_frames(code_address as u64);
 
             if let Ok(mut frames_iter) = frames {
